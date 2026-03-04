@@ -23,6 +23,7 @@ BUILD_JOBS="16"
 GPU_ARCH_LIST="12.1a"
 WHEELS_REPO="eugr/spark-vllm-docker"
 FLASHINFER_RELEASE_TAG="prebuilt-flashinfer-current"
+VLLM_RELEASE_TAG="prebuilt-vllm-current"
 # Space-separated list of GPU architectures for which prebuilt wheels are available
 PREBUILT_WHEELS_SUPPORTED_ARCHS="12.1a"
 
@@ -332,30 +333,32 @@ if [ "$NO_BUILD" = false ]; then
         # ----------------------------------------------------------
         # Phase 2: vLLM wheels
         # ----------------------------------------------------------
-        VLLM_WHEELS_EXIST=false
-        if compgen -G "./wheels/vllm*.whl" > /dev/null 2>&1; then
-            VLLM_WHEELS_EXIST=true
-        fi
-
         if [ "$VLLM_REF_SET" = true ] || [ -n "$VLLM_PRS" ]; then
             REBUILD_VLLM=true
         fi
 
-        if [ "$REBUILD_VLLM" = true ] || [ "$VLLM_WHEELS_EXIST" = false ]; then
-            if [ "$REBUILD_VLLM" = true ]; then
-                if [ "$VLLM_REF_SET" = true ] && [ -n "$VLLM_PRS" ]; then
-                    echo "Rebuilding vLLM wheels (--vllm-ref and --apply-vllm-pr specified)..."
-                elif [ "$VLLM_REF_SET" = true ]; then
-                    echo "Rebuilding vLLM wheels (--vllm-ref specified)..."
-                elif [ -n "$VLLM_PRS" ]; then
-                    echo "Rebuilding vLLM wheels (--apply-vllm-pr specified)..."
-                else
-                    echo "Rebuilding vLLM wheels (--rebuild-vllm specified)..."
-                fi
+        BUILD_VLLM=false
+        if [ "$REBUILD_VLLM" = true ]; then
+            if [ "$VLLM_REF_SET" = true ] && [ -n "$VLLM_PRS" ]; then
+                echo "Rebuilding vLLM wheels (--vllm-ref and --apply-vllm-pr specified)..."
+            elif [ "$VLLM_REF_SET" = true ]; then
+                echo "Rebuilding vLLM wheels (--vllm-ref specified)..."
+            elif [ -n "$VLLM_PRS" ]; then
+                echo "Rebuilding vLLM wheels (--apply-vllm-pr specified)..."
             else
-                echo "No vLLM wheels found in ./wheels/ — building..."
+                echo "Rebuilding vLLM wheels (--rebuild-vllm specified)..."
             fi
+            BUILD_VLLM=true
+        elif try_download_wheels "$VLLM_RELEASE_TAG" "vllm"; then
+            echo "vLLM wheels ready."
+        elif compgen -G "./wheels/vllm*.whl" > /dev/null 2>&1; then
+            echo "Download failed — using existing local vLLM wheels."
+        else
+            echo "No vLLM wheels available (download failed) — building..."
+            BUILD_VLLM=true
+        fi
 
+        if [ "$BUILD_VLLM" = true ]; then
             # Back up existing vllm wheels; restore them if the build fails
             VLLM_BACKUP="./wheels/.backup-vllm"
             rm -rf "$VLLM_BACKUP" && mkdir -p "$VLLM_BACKUP"
@@ -378,7 +381,6 @@ if [ "$NO_BUILD" = false ]; then
                 VLLM_CMD+=("--build-arg" "VLLM_PRS=$VLLM_PRS")
             fi
 
-
             VLLM_CMD+=(".")
 
             echo "vLLM build command: ${VLLM_CMD[*]}"
@@ -393,8 +395,6 @@ if [ "$NO_BUILD" = false ]; then
                 rm -rf "$VLLM_BACKUP"
                 exit 1
             fi
-        else
-            echo "vLLM wheels already present in ./wheels/ — skipping build."
         fi
 
         # ----------------------------------------------------------
